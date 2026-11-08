@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>結婚式クイズ大会（完全版・同期安定）</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: white;
+            width: 90%;
+            max-width: 650px;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1 { color: #333; font-size: 24px; margin-bottom: 10px; }
+        p { color: #666; font-size: 15px; margin-bottom: 25px; }
+        input[type="text"] {
+            width: 100%; padding: 12px; font-size: 16px;
+            border: 2px solid #ddd; border-radius: 8px;
+            box-sizing: border-box; margin-bottom: 20px; outline: none;
+        }
+        .main-button {
+            width: 100%; padding: 14px; font-size: 16px; font-weight: bold;
+            color: white; background-color: #007bff; border: none;
+            border-radius: 8px; cursor: pointer; margin-bottom: 12px;
+        }
+        .main-button:hover { background-color: #0056b3; }
+        .admin-button { background-color: #28a745; }
+        .admin-button:hover { background-color: #218838; }
+        .slide-button { background-color: #6f42c1; }
+        .slide-button:hover { background-color: #5a32a3; }
+        
+        .question-box {
+            font-size: 20px; font-weight: bold; color: #333;
+            background: #eef2f7; padding: 20px; border-radius: 8px;
+            margin-bottom: 20px; text-align: left;
+        }
+        .choice-btn {
+            width: 100%; padding: 14px; font-size: 16px; font-weight: bold;
+            color: #333; background-color: white; border: 2px solid #007bff;
+            border-radius: 8px; cursor: pointer; margin-bottom: 12px;
+            text-align: left; padding-left: 20px;
+        }
+        .choice-btn:hover { background-color: #007bff; color: white; }
+        
+        .timer-box { font-size: 28px; font-weight: bold; color: #dc3545; margin-bottom: 15px; }
+        .answer-list { text-align: left; max-height: 220px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
+        .ranking-item { font-size: 16px; padding: 8px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; }
+        
+        #slide-screen { max-width: 850px; background: #ffffff; border: 4px solid #6f42c1; }
+    </style>
+</head>
+<body>
+
+    <!-- ① 参加者登録画面 -->
+    <div class="card" id="register-screen">
+        <h1>🎉 結婚式クイズ大会へようこそ！</h1>
+        <p>あなたのニックネームを入力して参加してください</p>
+        <input type="text" id="nickname-input" placeholder="例：山田 太郎" maxlength="20">
+        <button class="main-button" onclick="joinQuiz()">参加する！</button>
+        <button class="main-button admin-button" onclick="showAdminScreen()">【管理者用】司会者画面を開く</button>
+        <button class="main-button slide-button" onclick="showSlideScreen()">【スクリーン用】スライド画面を開く</button>
+    </div>
+
+    <!-- ② 参加者：待機画面 -->
+    <div class="card" id="waiting-screen" style="display: none;">
+        <h1>参加登録完了！</h1>
+        <p id="welcome-message"></p>
+        <p>司会者が問題を出題するまで、このままお待ちください……</p>
+    </div>
+
+    <!-- ③ 参加者：クイズ回答画面 -->
+    <div class="card" id="quiz-screen" style="display: none;">
+        <div class="timer-box" id="timer-display">残り時間: 10秒</div>
+        <p style="color: #007bff; font-weight: bold; margin-bottom: 10px;" id="participant-q-num">第 1 問</p>
+        <div class="question-box" id="participant-q-text">読み込み中...</div>
+        <button class="choice-btn" onclick="answerQuiz(1)" id="p-btn-1">選択肢1</button>
+        <button class="choice-btn" onclick="answerQuiz(2)" id="p-btn-2">選択肢2</button>
+        <button class="choice-btn" onclick="answerQuiz(3)" id="p-btn-3">選択肢3</button>
+        <button class="choice-btn" onclick="answerQuiz(4)" id="p-btn-4">選択肢4</button>
+    </div>
+
+    <!-- ④ 参加者：回答完了画面 -->
+    <div class="card" id="result-screen" style="display: none;">
+        <h1>回答を受け付けました！</h1>
+        <p id="my-answer-text" style="font-size: 16px; font-weight: bold; color: #333; margin: 20px 0;"></p>
+        <p id="response-time-text" style="color: #666; font-size: 13px;"></p>
+        <p>次の問題をお待ちください……</p>
+    </div>
+
+    <!-- ⑤ 司会者・管理者コントロールパネル -->
+    <div class="card" id="admin-screen" style="display: none;">
+        <h1>🎤 司会者コントロールパネル</h1>
+        <div style="background: #fff3cd; padding: 12px; border-radius: 8px; margin-bottom: 20px; color: #856404; font-weight: bold;">
+            現在の参加人数: <span id="participant-count">0</span> 人
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label style="font-weight: bold; display: block; margin-bottom: 5px;">出題する問題を選ぶ：</label>
+            <select id="question-select" style="width: 100%; padding: 10px; font-size: 16px; border-radius: 8px;">
+                <option value="1">第1問：新郎が初めて新婦にプレゼントしたものは？</option>
+                <option value="2">第2問：新婚旅行で行ったお気に入りの場所は？</option>
+                <option value="3">第3問：お互いの第一印象で「意外だったところ」は？</option>
+            </select>
+        </div>
+        <button class="main-button admin-button" onclick="startQuiz()">選んだ問題を出題する！ (10秒制限)</button>
+        <button class="main-button slide-button" onclick="showRankingFromAdmin()">🏆 スライドにランキングを発表する</button>
+    </div>
+
+    <!-- ⑥ 司会者のライブ実況画面 -->
+    <div class="card" id="admin-live-screen" style="display: none;">
+        <h1 id="admin-status-title">📢 受付中...</h1>
+        <div class="timer-box" id="admin-timer">10</div>
+        <h3>リアルタイム回答状況</h3>
+        <div class="answer-list" id="live-answer-list">
+            <p>まだ回答はありません...</p>
+        </div>
+        <button class="main-button admin-button" id="back-to-admin-btn" onclick="backToAdminMenu()">← 管理者メニューに戻る</button>
+    </div>
+
+    <!-- ⑦ 【スクリーン用】スライド画面 -->
+    <div class="card" id="slide-screen" style="display: none;">
+        <h1 id="slide-title" style="color: #6f42c1; font-size: 28px;">📽️ 会場スクリーン画面</h1>
+        <div class="timer-box" id="slide-timer" style="display: none;">10</div>
+        <div class="question-box" id="slide-question-text" style="font-size: 22px;">
+            司会者からの出題を待っています...
+        </div>
+        <div id="slide-choices" style="text-align: left; margin-bottom: 20px;"></div>
+        
+        <!-- スライド用ランキング表示エリア -->
+        <div id="slide-ranking-area" style="display: none;">
+            <h2 id="slide-answer-announce" style="color: #28a745; margin-bottom: 10px;"></h2>
+            <div class="answer-list" id="slide-ranking-list" style="max-height: 350px;"></div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://spclymiszhumtevjnpif.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_6KwyjN2EVFy1N3hbMBH7fw_j8FAFsIP';
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let myNickname = "";
+        let questionStartTime = 0;
+        let lastSeenStateId = 0;
+        let lastSlideStateId = 0; // スライド用の重複防止ID
+
+        // 問題データ（第1問〜第3問）
+        const quizData = {
+            1: { question: "第1問：新郎が初めて新婦にプレゼントしたものは何？", choices: ["① 花束", "② 指輪", "③ 手紙の束", "④ クマのぬいぐるみ"], correct: 2 },
+            2: { question: "第2問：新婚旅行で行ったお気に入りの場所は？", choices: ["① ハワイ＆ロサンゼルス", "② パリ＆ローマ", "③ バリ島＆シンガポール", "④ モルディブ"], correct: 1 },
+            3: { question: "第3問：お互いの第一印象で「意外だったところ」は？", choices: ["① 実はめちゃくちゃインドア", "② 実は料理がプロ級", "③ 実は運動神経抜群", "④ 実は方向音痴"], correct: 3 }
+        };
+
+        // 参加登録
+        async function joinQuiz() {
+            const input = document.getElementById('nickname-input');
+            myNickname = input.value.trim();
+            if (myNickname === "") { alert("ニックネームを入力してください！"); return; }
+
+            try {
+                const { error } = await supabaseClient.from('participants').insert([{ nickname: myNickname, score: 0 }]);
+                if (error) throw error;
+
+                document.getElementById('register-screen').style.display = 'none';
+                document.getElementById('waiting-screen').style.display = 'block';
+                document.getElementById('welcome-message').textContent = `ようこそ、${myNickname}さん！`;
+
+                setInterval(checkQuizStatus, 2000);
+            } catch (error) {
+                alert("登録エラー: " + error.message);
+            }
+        }
+
+        // 管理者画面を表示
+        async function showAdminScreen() {
+            document.getElementById('register-screen').style.display = 'none';
+            document.getElementById('admin-screen').style.display = 'block';
+            const { count } = await supabaseClient.from('participants').select('*', { count: 'exact', head: true });
+            document.getElementById('participant-count').textContent = count || 0;
+        }
+
+        // スライド用画面を表示
+        async function showSlideScreen() {
+            document.getElementById('register-screen').style.display = 'none';
+            document.getElementById('slide-screen').style.display = 'block';
+
+            // ★スライド画面を開いた瞬間の最新IDをあらかじめ記憶して、過去の古いデータで勝手に進まないようにする
+            const { data } = await supabaseClient.from('quiz_state').select('id').order('id', { ascending: false }).limit(1);
+            if (data && data.length > 0) {
+                lastSlideStateId = data[0].id;
+            }
+
+            setInterval(checkQuizStatusForSlide, 2000);
+        }
+
+        // 【司会者アクション】問題を出題
+        async function startQuiz() {
+            const qNum = document.getElementById('question-select').value;
+            try {
+                await supabaseClient.from('answers').delete().neq('id', 0);
+
+                const { error } = await supabaseClient.from('quiz_state').insert([{ status: 'start', q_num: parseInt(qNum) }]);
+                if (error) throw error;
+
+                document.getElementById('admin-screen').style.display = 'none';
+                document.getElementById('admin-live-screen').style.display = 'block';
+                startAdminTimer();
+            } catch (error) {
+                alert("出題エラー: " + error.message);
+            }
+        }
+
+        // 参加者用：ステータスチェック
+        async function checkQuizStatus() {
+            try {
+                const { data } = await supabaseClient.from('quiz_state').select('*').order('id', { ascending: false }).limit(1);
+                if (data && data.length > 0) {
+                    const latestState = data[0];
+                    if (latestState.id !== lastSeenStateId) {
+                        lastSeenStateId = latestState.id;
+                        if (latestState.status === 'start') {
+                            showParticipantQuiz(latestState.q_num);
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // スライド用：ステータスチェック（新しい操作が行われたときだけ動く）
+        async function checkQuizStatusForSlide() {
+            try {
+                const { data } = await supabaseClient.from('quiz_state').select('*').order('id', { ascending: false }).limit(1);
+                if (data && data.length > 0) {
+                    const latestState = data[0];
+                    if (latestState.id !== lastSlideStateId) {
+                        lastSlideStateId = latestState.id;
+                        if (latestState.status === 'start') {
+                            renderSlideQuiz(latestState.q_num);
+                        } else if (latestState.status === 'show_ranking') {
+                            renderSlideRanking(latestState.q_num);
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // 参加者：クイズ画面表示
+        function showParticipantQuiz(qNum) {
+            document.getElementById('register-screen').style.display = 'none';
+            document.getElementById('waiting-screen').style.display = 'none';
+            document.getElementById('result-screen').style.display = 'none';
+            document.getElementById('quiz-screen').style.display = 'block';
+
+            document.querySelectorAll('.choice-btn').forEach(b => b.disabled = false);
+
+            const q = quizData[qNum];
+            document.getElementById('participant-q-num').textContent = `第 ${qNum} 問`;
+            document.getElementById('participant-q-text').textContent = q.question;
+            document.getElementById('p-btn-1').textContent = q.choices[0];
+            document.getElementById('p-btn-2').textContent = q.choices[1];
+            document.getElementById('p-btn-3').textContent = q.choices[2];
+            document.getElementById('p-btn-4').textContent = q.choices[3];
+
+            questionStartTime = Date.now();
+            let timeLeft = 10;
+            const timerEl = document.getElementById('timer-display');
+            
+            if (window.currentCountdown) clearInterval(window.currentCountdown);
+
+            window.currentCountdown = setInterval(() => {
+                timeLeft--;
+                timerEl.textContent = `残り時間: ${timeLeft}秒`;
+                if (timeLeft <= 0) {
+                    clearInterval(window.currentCountdown);
+                    const qScreen = document.getElementById('quiz-screen');
+                    if (qScreen.style.display !== 'none') {
+                        qScreen.style.display = 'none';
+                        document.getElementById('result-screen').style.display = 'block';
+                        document.getElementById('my-answer-text').textContent = "時間切れです！（未回答）";
+                        document.getElementById('response-time-text').textContent = "";
+                    }
+                }
+            }, 1000);
+        }
+
+        // スライド用：問題を描画
+        function renderSlideQuiz(qNum) {
+            const q = quizData[qNum];
+            document.getElementById('slide-title').textContent = `📽️ 第 ${qNum} 問 出題中！`;
+            document.getElementById('slide-timer').style.display = 'block';
+            document.getElementById('slide-question-text').style.display = 'block';
+            document.getElementById('slide-choices').style.display = 'block';
+            document.getElementById('slide-question-text').textContent = q.question;
+            
+            let choicesHtml = "";
+            q.choices.forEach((choice, idx) => {
+                choicesHtml += `<div style="font-size: 20px; font-weight: bold; background: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: 2px solid #6f42c1;">${choice}</div>`;
+            });
+            document.getElementById('slide-choices').innerHTML = choicesHtml;
+            document.getElementById('slide-ranking-area').style.display = 'none';
+        }
+
+        // 司会者タイマー＆実況
+        function startAdminTimer() {
+            let timeLeft = 10;
+            const timerEl = document.getElementById('admin-timer');
+            const slideTimerEl = document.getElementById('slide-timer');
+            document.getElementById('admin-status-title').textContent = "📢 受付中...";
+
+            const liveCheck = setInterval(async () => {
+                const { data } = await supabaseClient.from('answers').select('*').order('response_time', { ascending: true });
+                if (data && data.length > 0) {
+                    const listEl = document.getElementById('live-answer-list');
+                    listEl.innerHTML = "";
+                    data.forEach((ans, index) => {
+                        const sec = (ans.response_time / 1000).toFixed(2);
+                        listEl.innerHTML += `<div class="ranking-item"><span>${index + 1}. ${ans.nickname} さん</span><span>選択肢${ans.choice} (${sec}秒)</span></div>`;
+                    });
+                }
+            }, 500);
+
+            const countdown = setInterval(() => {
+                timeLeft--;
+                timerEl.textContent = timeLeft;
+                slideTimerEl.textContent = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(countdown);
+                    clearInterval(liveCheck);
+                    document.getElementById('admin-status-title').textContent = "⏰ 回答終了！";
+                }
+            }, 1000);
+        }
+
+        // 司会者が管理画面から「スライドにランキングを発表する」を押したとき
+        async function showRankingFromAdmin() {
+            const qNum = document.getElementById('question-select').value;
+            await supabaseClient.from('quiz_state').insert([{ status: 'show_ranking', q_num: parseInt(qNum) }]);
+            alert("スライド画面にランキングを発表しました！");
+        }
+
+        // 司会者がライブ画面から管理メニューに戻るボタン
+        function backToAdminMenu() {
+            document.getElementById('admin-live-screen').style.display = 'none';
+            document.getElementById('admin-screen').style.display = 'block';
+        }
+
+        // スライド用：ランキングを描画
+        async function renderSlideRanking(qNum) {
+            document.getElementById('slide-title').textContent = `🏆 第 ${qNum} 問 ランキング発表`;
+            document.getElementById('slide-timer').style.display = 'none';
+            document.getElementById('slide-question-text').style.display = 'none';
+            document.getElementById('slide-choices').style.display = 'none';
+            document.getElementById('slide-ranking-area').style.display = 'block';
+
+            const q = quizData[qNum];
+            document.getElementById('slide-answer-announce').textContent = `正解は： ${q.choices[q.correct - 1]}`;
+
+            const { data } = await supabaseClient.from('answers').select('*');
+            if (!data) return;
+
+            const correctAnswers = data.filter(ans => ans.choice === q.correct);
+            correctAnswers.sort((a, b) => b.response_time - a.response_time);
+
+            const listEl = document.getElementById('slide-ranking-list');
+            listEl.innerHTML = "";
+            if (correctAnswers.length === 0) {
+                listEl.innerHTML = "<p style='font-size: 20px; text-align: center;'>正解者はいませんでした……！</p>";
+                return;
+            }
+
+            correctAnswers.forEach((ans, index) => {
+                const sec = (ans.response_time / 1000).toFixed(2);
+                listEl.innerHTML += `<div class="ranking-item" style="font-size: 20px; font-weight: bold; padding: 12px;"><span>👑 第 ${correctAnswers.length - index} 位： ${ans.nickname} さん</span><span>${sec} 秒</span></div>`;
+            });
+        }
+
+        // 参加者：回答送信
+        async function answerQuiz(choiceNum) {
+            const answerTimeMs = Date.now() - questionStartTime;
+            const responseTimeSec = (answerTimeMs / 1000).toFixed(2);
+            document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+
+            try {
+                await supabaseClient.from('answers').insert([{ nickname: myNickname, choice: choiceNum, response_time: answerTimeMs }]);
+                document.getElementById('quiz-screen').style.display = 'none';
+                document.getElementById('result-screen').style.display = 'block';
+                
+                document.getElementById('my-answer-text').textContent = `選択肢 ${choiceNum} を回答したよ！`;
+                document.getElementById('response-time-text').textContent = `回答時間：${responseTimeSec} 秒`;
+            } catch (error) {
+                alert("エラー: " + error.message);
+            }
+        }
+    </script>
+
+</body>
+</html>
